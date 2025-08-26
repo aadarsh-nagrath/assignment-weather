@@ -1,36 +1,98 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Weather Dashboard
 
-## Getting Started
+A modern weather dashboard built with Next.js, TypeScript, Tailwind, shadcn/ui. Uses WeatherAPI.com for current + forecast.
 
-First, run the development server:
+## Highlights
+- Multi-city display, add/remove, autocomplete
+- Current + 5-day + hourly timeline
+- Dark/Light modes, Neon/Stealth theme variants
+- Unit toggle (°C/°F, km/h/mph), city reorder
+- Auto-refresh every 15 minutes
+- Server caching: Prisma `WeatherCache` (30m TTL) + optional Redis L1 cache
 
+## Setup
+1. Install deps and set env
+```bash
+npm install
+```
+`.env.local`
+```env
+WEATHERAPI_KEY=your_weatherapi_key_here
+DATABASE_URL="file:./dev.db"
+# Optional
+REDIS_URL=redis://localhost:6379
+```
+2. DB
+```bash
+npx prisma generate
+npx prisma db push
+npm run db:seed # optional
+```
+3. Run
 ```bash
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+## Docker (docker-manage.sh)
+This repository includes a compose stack (web + Postgres + Redis) and a helper script.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+### One-time
+```bash
+chmod +x docker-manage.sh
+```
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+### Configure
+Edit or create `.env.local` (script will bootstrap one if missing):
+```env
+WEATHERAPI_KEY=your_weatherapi_key_here
+DATABASE_URL=postgresql://postgres:postgres@postgres:5432/weatherdb?schema=public
+REDIS_URL=redis://redis:6379
+NODE_ENV=production
+```
 
-## Learn More
+### Commands
+```bash
+./docker-manage.sh up        # start web, postgres, redis
+./docker-manage.sh down      # stop and remove stack
+./docker-manage.sh build     # build images
+./docker-manage.sh rebuild   # rebuild w/ no cache and recreate
+./docker-manage.sh restart   # restart services
+./docker-manage.sh logs      # follow logs
+./docker-manage.sh ps        # list services
+./docker-manage.sh migrate   # run prisma migrate deploy, then db push
+./docker-manage.sh seed      # seed demo data
+./docker-manage.sh sh        # shell into web container
+```
 
-To learn more about Next.js, take a look at the following resources:
+Notes:
+- If host port 6379 is busy, compose maps Redis on host 6380 while in-network stays `redis:6379`.
+- The app inside Docker uses `postgres` and `redis` service names; local host access would be `localhost:3000`.
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## API
+- `GET /api/weather?city=City&country=CC`
+  - Returns cached (DB/Redis) weather if fresh (<30m), else fetches from WeatherAPI and stores.
+- `GET /api/weather/search?q=del` – autocomplete suggestions
+- `GET /api/cities` – ordered list
+- `POST /api/cities` – add (auto-geocode); or reorder with `{ id, direction: 'up'|'down' }`
+- `DELETE /api/cities?id=...` – remove
+- `GET /api/prefs` – fetch preferences (units/theme/mode)
+- `POST /api/prefs` – save preferences for default user
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+## Assumptions
+- Single demo user (`id=default`); auth out of scope
+- DB used for cities, cache, and preferences; client localStorage still used for instant UX
+- Redis is optional; app runs without it
 
-## Deploy on Vercel
+## Known Limitations
+- No real auth/multi-user tenancy
+- City order/API reorder is simple swap; drag-and-drop can be added
+- Radar/map not yet implemented
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+## Future Work
+- Drag-and-drop reorder; groups/collections
+- Radar/precipitation maps per city
+- Scheduled server refresh + webhooks
+- Postgres + Redis in production
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+## AI Tools Used
+- Cursor/AI-assisted coding; shadcn/ui generator
