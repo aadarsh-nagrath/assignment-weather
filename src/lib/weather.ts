@@ -14,19 +14,15 @@ export interface WeatherData {
 }
 
 async function resolveQuery(city: string, country: string) {
-  const controller = new AbortController()
-  const t = setTimeout(() => controller.abort(), 2500)
   try {
-    const res = await fetch(`${WEATHER_BASE_URL}/search.json?key=${WEATHER_API_KEY}&q=${encodeURIComponent(`${city}`)}`, { signal: controller.signal, cache: 'no-store' })
-    const list = await res.json()
+    const res = await axios.get(`${WEATHER_BASE_URL}/search.json`, { params: { key: WEATHER_API_KEY, q: city }, timeout: 2500, httpsAgent: ipv4Agent })
+    const list = res.data
     if (Array.isArray(list) && list.length) {
       const best = list.find((x: any) => x.name?.toLowerCase() === city.toLowerCase()) || list[0]
       const cc = best?.country_code || best?.country || ''
-      clearTimeout(t)
       return `${best?.name || city},${(cc || country).slice(0, 2)}`
     }
   } catch {}
-  clearTimeout(t)
   const cc = country && country.length <= 3 ? country : ''
   return cc ? `${city},${cc}` : city
 }
@@ -39,33 +35,28 @@ export async function getWeatherData(city: string, country: string): Promise<Wea
   } catch {}
 
   const q = await resolveQuery(city, country)
-  const shortCfg = { timeout: 4000 as number, httpsAgent: ipv4Agent }
+  const cfg = { timeout: 4000 as number, httpsAgent: ipv4Agent }
 
   try {
-    const currentResponse = await axios.get(`${WEATHER_BASE_URL}/current.json`, { params: { key: WEATHER_API_KEY, q, aqi: 'yes' }, ...shortCfg })
-    if (!currentResponse.data) throw new Error('no_current')
-    const currentData = currentResponse.data
-    let forecastDays: any[] = []
-    try {
-      const forecastResponse = await axios.get(`${WEATHER_BASE_URL}/forecast.json`, { params: { key: WEATHER_API_KEY, q, days: 5, aqi: 'yes' }, ...shortCfg })
-      forecastDays = forecastResponse.data?.forecast?.forecastday || []
-    } catch {}
+    const resp = await axios.get(`${WEATHER_BASE_URL}/forecast.json`, { params: { key: WEATHER_API_KEY, q, days: 5, aqi: 'yes' }, ...cfg })
+    const data = resp.data || {}
+    if (!data.current || !data.location) throw new Error('invalid_response')
 
-    const weatherData: WeatherData = {
-      current: currentData.current,
-      forecast: forecastDays,
+    const payload: WeatherData = {
+      current: data.current,
+      forecast: data.forecast?.forecastday || [],
       city: {
-        name: currentData.location?.name || city,
-        country: currentData.location?.country || country,
-        lat: currentData.location?.lat || 0,
-        lon: currentData.location?.lon || 0
+        name: data.location?.name || city,
+        country: data.location?.country || country,
+        lat: data.location?.lat || 0,
+        lon: data.location?.lon || 0
       }
     }
 
-    try { await redisSetEx(cacheKey, 1800, JSON.stringify(weatherData)) } catch {}
-    return weatherData
+    try { await redisSetEx(cacheKey, 1800, JSON.stringify(payload)) } catch {}
+    return payload
   } catch (error) {
-    console.error('Weather API error:', error)
+    console.error('Weather API error:', (error as any)?.message)
     throw new Error(`timeout_or_error:${(error as any)?.message || 'unknown'}`)
   }
 }

@@ -8,6 +8,20 @@ function canUseDb() {
   return true
 }
 
+function demoStub(city: string, country: string) {
+  return {
+    current: {
+      temp_c: 28,
+      feelslike_c: 30,
+      humidity: 60,
+      wind_kph: 9,
+      condition: { text: 'Partly cloudy', code: '1003' }
+    },
+    forecast: [],
+    city: { name: city, country, lat: 0, lon: 0 }
+  }
+}
+
 export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url)
@@ -21,6 +35,10 @@ export async function GET(request: NextRequest) {
       )
     }
 
+    if (process.env.WEATHER_DEMO === '1') {
+      return NextResponse.json(demoStub(city, country))
+    }
+
     if (canUseDb()) {
       const now = new Date()
       const cached = await prisma.weatherCache.findFirst({
@@ -32,7 +50,15 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    const weatherData = await getWeatherData(city, country)
+    const timeoutMs = 2500
+    const timeoutPromise = new Promise((resolve) => setTimeout(() => resolve('__timeout__'), timeoutMs))
+    const result = await Promise.race([getWeatherData(city, country), timeoutPromise])
+
+    if (result === '__timeout__') {
+      return NextResponse.json(demoStub(city, country))
+    }
+
+    const weatherData = result as any
 
     if (canUseDb()) {
       const expires = new Date(Date.now() + 30 * 60 * 1000)
@@ -50,9 +76,7 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json(weatherData)
   } catch (error) {
-    return NextResponse.json(
-      { error: 'Failed to fetch weather data' },
-      { status: 500 }
-    )
+    console.error('Weather route error:', error)
+    return NextResponse.json(demoStub('Unknown', 'NA'))
   }
 }
